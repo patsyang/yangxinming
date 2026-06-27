@@ -1,0 +1,390 @@
+---
+name: conclusion-verification-workflow
+version: 1.2.0
+description: 结论验证正式工作流；只服务 conclusion-verifier，承载强制验证分层、阶段检查点 / 最终输出双相位验证、风格解析、单轮修复边界与 verifier 输入输出合同。
+
+goal:
+  summary: 确保关键任务在输出前或阶段检查点切换前经过 conclusion-verifier 结论验证，并在不改变主验证入口的前提下支持风格化验证。
+
+verification_layers:
+  mandatory_verification:
+    task_types:
+      - policy_analysis
+      - technical_design
+      - risk_assessment
+      - cross_module_analysis
+      - product_design
+      - design_review
+      - meta_discussion
+      - user_correction
+      - gtm_documentation
+    requirements:
+      - 必须调用 conclusion-verifier
+      - 验证通过前阻止输出
+      - 若检测到阶段检查点，阶段切换前必须先完成验证
+      - 单次验证 warn/fail 必须返回问题与修正建议，并在同轮内完成最终输出或明确风险与缺失项
+  optional_verification:
+    task_types:
+      - before_final_output
+      - simple_question
+      - factual_query
+    degradation_conditions:
+      - 'task_complexity == "low" and user_intent == "simple_question"'
+      - "verification_timeout > 3_minutes"
+      - "context_remaining < 1000_tokens"
+      - "consecutive_verifications > 5"
+    degradation_flow:
+      - 检测到降级条件
+      - 跳过 conclusion-verifier
+      - 执行主 Agent 自检
+      - 输出结果与自检摘要
+    self_check_checklist:
+      - item: 事实准确性
+        check: 引用的数据、名称、日期是否准确
+      - item: 逻辑完整性
+        check: 回答是否完整、是否存在逻辑跳跃
+      - item: 语境适配性
+        check: 是否理解用户真实意图
+      - item: 格式规范性
+        check: 输出格式是否符合规范
+
+verification_levels:
+  - level: L1
+    trigger: 法规分析、技术方案、风险评估、元问题讨论
+    verifier: conclusion-verifier
+    degradation_policy: 不允许降级
+  - level: L2
+    trigger: 产品设计、设计评审、跨模块分析
+    verifier: conclusion-verifier
+    degradation_policy: 可降级，但必须记录原因
+  - level: L3
+    trigger: 简单问答、事实查询、普通对话
+    verifier: 主 Agent 自检
+    degradation_policy: 默认降级
+
+workflow:
+  - step: detect_task_type
+    description: 检测任务类型和输出复杂度
+    action: analyze_output
+    output_types:
+      - policy_analysis
+      - technical_design
+      - risk_assessment
+      - cross_module_analysis
+      - product_design
+      - design_review
+      - meta_discussion
+      - user_correction
+      - gtm_documentation
+      - complex_output
+      - other
+
+  - step: check_complexity
+    description: 检测输出复杂度（无 Agent 时）
+    action: analyze
+    rules:
+      - condition: "output_length > 200"
+        set:
+          complexity: high
+          verification_required: true
+      - condition: 'contains_keywords(output, ["分析", "评估", "对比", "建议", "推荐", "方案"])'
+        set:
+          complexity: high
+          verification_required: true
+      - condition: 'contains_keywords(output, ["步骤", "流程", "方法", "如何"])'
+        set:
+          complexity: high
+          verification_required: true
+      - condition: else
+        set:
+          complexity: low
+          verification_required: false
+
+  - step: check_verification_required
+    description: 检查是否需要验证
+    action: decide
+    rules:
+      - condition: "stage_checkpoint_verifier_required == true"
+        set:
+          verification_required: true
+          verification_level: mandatory
+      - condition: "task_type in ['policy_analysis', 'technical_design', 'risk_assessment', 'cross_module_analysis', 'product_design', 'design_review', 'meta_discussion', 'user_correction', 'gtm_documentation']"
+        set:
+          verification_required: true
+          verification_level: mandatory
+      - condition: "complexity == 'high'"
+        set:
+          verification_required: true
+          verification_level: optional
+      - condition: else
+        set:
+          verification_required: false
+          verification_level: skipped
+
+  - step: resolve_verification_style
+    description: 解析 verifier 风格（仅对 conclusion-verifier 生效，保持 conclusion-verifier 为主入口）
+    condition: "{{verification_required == true}}"
+    input:
+      task_type: "${task_type}"
+      active_skill: "${active_skill}"
+      dispatch_target: "${dispatch_target}"
+      verification_style: "${verification_style}"
+      verification_phase: "${verification_phase}"
+      audience_mode: "${audience_mode}"
+    resolution_priority:
+      - verification_style
+      - active_skill
+      - dispatch_target
+      - task_type
+      - generic_analysis
+    mapping:
+      active_skill:
+        "plan-ceo-review": plan_ceo_review
+      dispatch_target:
+        "product-designer": design_plan
+        "prd-kit": design_plan
+        "strategy-analyst": strategy_market
+        "market-researcher": strategy_market
+        "gtm-documenter-agent": gtm_document
+        "project-governance-agent": agentic_governance
+      task_type:
+        "product_design": design_plan
+        "design_review": design_plan
+        "cross_module_analysis": design_plan
+        "strategy_planning": strategy_market
+        "market_analysis": strategy_market
+        "gtm_documentation": gtm_document
+        "agentic_analysis": agentic_governance
+        "project_agentic_governance": agentic_governance
+      compatibility:
+        - 旧调用方如果只传 task_type / conclusion_content / context_materials，则回退 generic_analysis，不报错
+        - gtm_document 的 audience_mode 允许值为 external_client / internal
+        - gtm_document 若缺少 audience_mode，则默认 external_client
+    output:
+      verification_style: "${resolved_verification_style}"
+      verifier_style_profile_path: ".trae/agents/context/verifier-style-profiles.md"
+      resolved_audience_mode: "${audience_mode if audience_mode else ('external_client' if resolved_verification_style == 'gtm_document' or task_type == 'gtm_documentation' else '')}"
+
+  - step: invoke_conclusion_verifier
+    description: 调用结论验证器
+    condition: "{{verification_required == true}}"
+    action: agent
+    agent: conclusion-verifier
+    input:
+      task_type: "${task_type}"
+      conclusion_content: "${agent_output}"
+      context_materials:
+        - "${context_materials}"
+        - "profile_path=${verifier_style_profile_path}#${verification_style}"
+        - "verification_phase=${verification_phase}"
+        - "checkpoint_type=${checkpoint_type}"
+        - "checkpoint_rationale=${checkpoint_rationale}"
+        - "checkpoint_source=${checkpoint_source}"
+        - "audience_mode=${resolved_audience_mode}"
+      verification_style: "${verification_style}"
+      active_skill: "${active_skill}"
+      dispatch_target: "${dispatch_target}"
+      verification_phase: "${verification_phase}"
+      audience_mode: "${resolved_audience_mode}"
+
+  - step: evaluate_validation_result
+    description: 评估验证结果
+    action: decide
+    checks:
+      - condition: "passed == true"
+        set:
+          proceed_to_output: true
+      - condition: else
+        set:
+          proceed_to_output: false
+          issues: "${validation_result.issues}"
+
+  - step: correction_loop
+    description: 修正循环（仅 1 轮）
+    action: loop
+    max_iterations: 1
+    loop_body:
+      - action: correct_conclusion
+        agent: "${original_agent}"
+        feedback: "${issues}"
+
+  - step: handle_failure
+    description: 处理验证失败（1 轮后仍未通过）
+    condition: "{{loop_completed and !passed}}"
+    action: notify
+    notify_user: 验证未通过：明确风险与缺失项，并给出可执行修正建议
+
+  - step: proceed_to_output
+    description: 输出结果
+    condition: "{{passed == true or loop_completed == true}}"
+    action: output
+    output:
+      validation_summary: "${validation_result}"
+      conclusion: "${final_conclusion}"
+
+pre_output_checklist:
+  - item: 任务类型识别
+    status: required
+    check: 已识别任务类型（policy_analysis / technical_design / risk_assessment / cross_module_analysis / product_design / design_review / product_discussion / other）
+  - item: 验证器调用
+    status: required_if_applicable
+    check: 如需要验证，已调用 conclusion-verifier
+  - item: 阶段检查点
+    status: required_if_checkpoint
+    check: 如检测到阶段检查点，已在阶段切换前调用 conclusion-verifier
+  - item: 验证结果
+    status: required_if_verified
+    check: 验证通过，或已明确风险与缺失项
+  - item: 迭代次数
+    status: required_if_verified
+    check: 迭代次数 <= 1
+  - item: 验证摘要
+    status: required
+    check: 输出中包含验证摘要
+  - item: 产品相关任务检查
+    status: required_if_product_related
+    check: 如 product-designer 参与（功能设计 / 设计评审 / 产品讨论），已调用 conclusion-verifier
+
+verifier_input_contract:
+  task_type_example: policy_analysis
+  conclusion_content_example: "[待验证的结论文本]"
+  context_materials_examples:
+    - "[相关法规原文]"
+    - "[技术文档片段]"
+    - "[平台知识库引用]"
+    - "[用户输入上下文]"
+    - "profile_path=.trae/agents/context/verifier-style-profiles.md#design_plan"
+  verification_style_values:
+    - generic_analysis
+    - plan_ceo_review
+    - design_plan
+    - strategy_market
+    - gtm_document
+    - agentic_governance
+  optional_inputs:
+    active_skill: plan-ceo-review
+    dispatch_target: product-designer
+    verification_phase: stage_checkpoint
+    checkpoint_type: blocker_closed
+    checkpoint_rationale: 所有阻断项已闭合，准备进入下一阶段
+    checkpoint_source: product-designer
+    audience_mode: internal
+
+verifier_output_contract:
+  passed: true
+  issues:
+    - dimension: source_accuracy
+      severity: major
+      description: 问题描述
+      evidence: 证据引用
+  suggestions:
+    - type: revision
+      description: 修正建议
+      priority: high
+  confidence: 0.95
+  validation_summary: "[验证过程摘要]"
+
+task_type_detection:
+  policy_analysis:
+    triggers:
+      - 法规分析
+      - 政策解读
+      - 合规检查
+      - 监管要求
+      - 数据安全法
+      - 金融规章
+    agents:
+      - policy-analyst
+  technical_design:
+    triggers:
+      - 技术方案
+      - 架构设计
+      - 模块关系
+      - 平台架构
+      - 系统设计
+    agents:
+      - product-designer
+      - architecture-designer
+  risk_assessment:
+    triggers:
+      - 风险评估
+      - 风险分析
+      - 风险识别
+      - 风险等级
+    agents:
+      - policy-analyst
+      - product-designer
+  cross_module_analysis:
+    triggers:
+      - 跨模块
+      - 模块协同
+      - 模块关系
+      - 平台整体
+      - 多个模块
+    agents:
+      - product-designer
+      - knowledge-manager
+  product_design:
+    triggers:
+      - 功能设计
+      - 设计功能
+      - 产品设计
+      - 用户故事
+      - 需求设计
+      - 体验设计
+    agents:
+      - product-designer
+    task_types:
+      - feature_design
+  design_review:
+    triggers:
+      - 设计评审
+      - 评审设计
+      - 体验评审
+      - UX 评审
+      - 交互评审
+      - 设计方案评审
+    agents:
+      - product-designer
+    task_types:
+      - design_review
+  product_discussion:
+    triggers:
+      - 产品讨论
+      - 产品规划
+      - 产品方向
+      - 产品策略
+      - 产品定位
+      - 与主 Agent 讨论产品
+    agents:
+      - product-designer
+    description: 与主 Agent 讨论任何产品相关问题
+
+exception_handling:
+  - scenario: 验证器调用失败
+    action: 重试 2 次，仍失败则降级到主 Agent 自检并记录错误
+  - scenario: 验证超时（>5 分钟）
+    action: 跳过验证、记录警告、通知用户
+  - scenario: 验证器与主 Agent 分歧严重
+    action: 明确分歧点与证据缺口，给出保守建议，并由用户确认口径
+  - scenario: 上下文超出限制
+    action: 压缩上下文，优先保留核心结论和关键证据
+
+performance_optimization:
+  - strategy: 并行验证
+    description: 如任务包含多个独立结论，可并行调用多个验证器实例
+  - strategy: 增量验证
+    description: 如仅修正部分内容，仅验证修正部分
+  - strategy: 缓存验证结果
+    description: 相同结论类型和上下文的验证结果可复用（24 小时有效期）
+
+quality_metrics:
+  - metric: 验证覆盖率
+    target: 100% 的关键任务（policy / technical / risk / cross_module）
+  - metric: 验证通过率
+    target: ">80% 首轮验证通过"
+  - metric: 平均验证轮次
+    target: <= 1.0 轮
+  - metric: 用户满意度
+    target: ">90% 用户认可验证结果"
+

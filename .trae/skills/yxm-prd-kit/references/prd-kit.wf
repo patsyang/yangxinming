@@ -1,0 +1,1033 @@
+name: prd-kit-workflow
+version: 1.4.0
+description: 非 Agent 应用 PRD 多轮讨论、质疑驱动收敛、过程文件维护、阶段防跳步、质量门、正式 PRD 输出与 CEO 评审闭环工作流
+
+startup_read_contract:
+  entry_file: .trae/skills/yxm-prd-kit/references/prd-kit.wf
+  allowed_startup_reads:
+    - .trae/skills/yxm-prd-kit/SKILL.md
+    - .trae/skills/yxm-prd-kit/references/prd-kit.wf
+    - .trae/skills/yxm-prd-kit/references/challenge-framework.md
+  violation:
+    code: eager_template_load
+    message: 启动阶段只读取 Skill 入口、活动 wf 与质疑框架；正式 PRD 结构由本 wf 的 output_rules.when_pass 定义，不读取外部正式模板；研发版 PRD 模板仅允许 W11 读取。
+
+skill_runtime_contract:
+  command_entry: /prd-kit
+  skill_entry: .trae/skills/yxm-prd-kit/SKILL.md
+  active_wf: .trae/skills/yxm-prd-kit/references/prd-kit.wf
+  deterministic_runtime: .trae/skills/yxm-prd-kit/executors/prd_kit_runtime.py
+  runtime_role:
+    - 解析阶段顺序、正式 PRD 章节和禁用过程术语
+    - 校验 Workflow State、Stage Ledger、质疑账本、冲突账本和语义反思记录
+    - 校验 Review Adapter Ledger、Adapter Waiver Ledger、真实重读记录和 W9 章节语义质疑覆盖记录
+    - 校验 PRD Kit Configuration、Effective Challenge Ledger、用户模型账本、关键业务流程账本、Repair Loop Ledger 和 Stage Revalidation Ledger
+    - 执行结构化阶段切换写入并使用 .prd-kit.lock 保护同一应用目录
+    - 默认仅向 stdout 输出 JSON；只有显式 --out 时写 JSON 文件
+  runtime_non_goals:
+    - 不做开放式自然语言理解
+    - 不生成 PRD 正文
+    - 不替代 LLM 的产品质疑、语义反思和用户沟通判断
+    - 不默认生成 run record 目录
+
+scope:
+  applies_to:
+    - 传统业务应用
+    - 平台模块
+    - 应用市场应用
+    - 流程型产品
+    - 审批型产品
+    - 配置型产品
+    - 运营管理型产品
+  excludes:
+    - Agent/智能体产品
+    - 需要 AI 自主决策的产品
+    - 需要工具调用、记忆、知识库、评测体系的 AI Agent
+    - 纯技术方案或代码实现方案
+
+owners:
+  primary: product-designer
+  workflow_skill: prd-kit
+  verifier: conclusion-verifier
+  verifier_style: design_plan
+
+artifacts:
+  process_file:
+    purpose: 多轮讨论中的唯一过程事实源
+    default_path: output/prd-kit/<应用slug>/<应用名称>-过程文件.md
+    update_policy: 每轮需求讨论后都要更新
+    allowed_content:
+      - workflow_state
+      - stage_ledger
+      - 范围判断
+      - 已确认事实
+      - 工作假设
+      - 决策日志
+      - 阻断项跟踪
+      - 质疑账本
+      - 假设账本
+      - 冲突账本
+      - 语义反思记录
+      - PRD Kit Configuration
+      - Effective Challenge Ledger
+      - Challenge Quota Summary
+      - 用户模型账本
+      - 关键业务流程账本
+      - Repair Loop Ledger
+      - Stage Revalidation Ledger
+      - Adapter Review Ledger
+      - Adapter Waiver Ledger
+      - 真实重读记录
+      - W9 章节语义质疑覆盖记录
+      - 当前方案快照
+      - 下一轮最高优先级问题
+      - CEO 评审问题与修复记录
+  formal_prd:
+    purpose: 给研发、测试、交付直接消费的干净 PRD
+    default_path: output/prd-kit/<应用slug>/<应用名称>-PRD.md
+    generation_policy: 仅当 prd_gate=pass 后生成
+    forbidden_content:
+      - quality_gate_report
+      - artifact_stage
+      - blocking_gaps
+      - decision_log
+      - challenge_ledger
+      - Effective Challenge Ledger
+      - Challenge Quota Summary
+      - Repair Loop Ledger
+      - Adapter Review Ledger
+      - root_stage
+      - repair_applied
+      - counts_toward_quota
+      - assumption_ledger
+      - conflict_ledger
+      - 过程判断
+      - 未闭合阻断项
+  engineering_prd:
+    purpose: 面向研发、测试和 AI Coding 执行的模板化派生 PRD
+    default_path_pattern: output/prd-kit/<应用slug>/<应用名称>-研发版PRD-YYYYMMDD-HHmmss.md
+    source_artifacts:
+      - process_file
+      - formal_prd
+    template: .trae/skills/yxm-prd-kit/references/engineering-prd-template.md
+    generation_policy: 仅当 W10_plan_ceo_review passed 后生成；每次重新生成完整文件，不覆盖历史研发版 PRD
+    forbidden_content:
+      - quality_gate_report
+      - artifact_stage
+      - blocking_gaps
+      - decision_log
+      - challenge_ledger
+      - Effective Challenge Ledger
+      - Challenge Quota Summary
+      - Repair Loop Ledger
+      - Adapter Review Ledger
+      - root_stage
+      - repair_applied
+      - counts_toward_quota
+      - assumption_ledger
+      - conflict_ledger
+      - 过程判断
+      - 未闭合阻断项
+
+concept_alignment_contract:
+  purpose: 把 yxm-grill-with-docs 的术语挑战、具体场景压力测试、用户显式确认和即时回灌转译为 prd-kit 内部概念对齐门，防止 W1-Wn 自动推进时把 LLM 假设沉淀为 PRD 事实。
+  required_stages:
+    - W1_value_alignment
+    - W2_scenario_roles
+    - W3_function_architecture
+    - W4_pages_and_flows
+    - W5_object_state_audit
+    - W6_requirement_acceptance
+    - W9_formal_prd_output
+    - W10_plan_ceo_review
+  stage_modes:
+    proactive_grill: [W1_value_alignment, W2_scenario_roles, W3_function_architecture, W4_pages_and_flows, W5_object_state_audit, W6_requirement_acceptance]
+    consistency_grill: [W9_formal_prd_output]
+    backfill_grill: [W10_plan_ceo_review]
+    consume_only: [W11_engineering_prd_projection]
+  configuration:
+    section: "## PRD Kit Configuration"
+    default_enforcement: strict
+    migration_enforcement: migration_warning
+  concept_types:
+    - user
+    - object
+    - state
+    - action
+    - permission
+    - data_boundary
+    - business_flow
+    - acceptance
+    - copy
+  high_impact_types:
+    - object
+    - state
+    - action
+    - permission
+    - business_flow
+    - acceptance
+  domain_language_ledger_section: "## 领域语言账本"
+  domain_language_ledger_fields:
+    - term_id
+    - 阶段
+    - 标准术语
+    - 定义
+    - 避免用词
+    - 概念类型
+    - 所属对象/流程
+    - 影响章节
+    - 用户确认
+    - user_turn_ref
+    - 回灌位置
+    - 状态
+  concept_alignment_checkpoint_section: "## 概念对齐检查点"
+  concept_alignment_checkpoint_fields:
+    - stage
+    - 新增概念
+    - 变更概念
+    - 冲突概念
+    - 最高风险概念
+    - 对齐问题ID
+    - user_turn_ref
+    - exit_status
+    - blocker
+  loop_steps:
+    - 抽取本轮新增、变更或冲突的核心概念，优先覆盖用户类型、业务对象、对象关系、对象状态、关键动作、权限边界、数据边界、业务流程名称、业务结果、失败/撤回/删除/终止语义、页面/菜单承载对象和验收口径。
+    - 对照领域语言账本、用户模型账本、关键业务流程账本、核心对象模型、状态机和用户明确否定内容。
+    - 对 high-impact 概念生成 1 个最高价值概念对齐问题；若可低风险假设，必须写入领域语言账本并标记 assumed、回灌位置和后续复核阶段。
+    - 用户确认后立即回灌到领域语言账本、概念对齐检查点，以及对应事实、边界、对象、流程、状态、验收或排除项。
+    - W10 quota 补问、CEO 评审或用户反馈暴露概念错误时，记录 found_stage=W10_plan_ceo_review，定位 root_stage，通过 Repair Loop 回灌后从 root_stage 逐阶段重过，禁止 W10 本地闭环。
+  block_stage_progression_if:
+    - W1-W6 存在 high/critical 概念冲突且状态为 open/conflict
+    - 本阶段新增 high-impact 核心概念未进入领域语言账本
+    - high-impact 核心概念只有 assumed 且影响对象、状态、动作、权限、业务流程或验收
+    - 当前阶段缺少概念对齐检查点
+    - 用户明确否定过的术语、对象或状态被重新引入
+    - W9 正式 PRD 使用 rejected/deprecated 术语或引用未确认对象、状态、动作、验收口径
+    - W10 backfill grill 有概念冲突但缺少 found_stage=W10_plan_ceo_review 的 Repair Loop 记录或缺少 root_stage/backfill_location
+
+challenge_driven_prd_loop:
+  purpose: 把质疑和追问作为 PRD 收敛的主引擎，而不是阶段末检查的附属动作。
+  required_every_turn: true
+  references:
+    framework: .trae/skills/yxm-prd-kit/references/challenge-framework.md
+    stage_bank: .trae/skills/yxm-prd-kit/references/stage-challenge-bank.md
+    semantic_review: .trae/skills/yxm-prd-kit/references/semantic-review-checklist.md
+    question_rubric: .trae/skills/yxm-prd-kit/references/question-quality-rubric.md
+    challenge_quota: .trae/skills/yxm-prd-kit/references/challenge-quota-loop.md
+    reviewer_perspectives: .trae/skills/yxm-prd-kit/references/reviewer-perspectives.md
+    business_scenario: .trae/skills/yxm-prd-kit/references/business-scenario-loop.md
+    root_cause_repair: .trae/skills/yxm-prd-kit/references/root-cause-repair-loop.md
+    review_adapters: .trae/skills/yxm-prd-kit/references/review-adapters.md
+  loop_steps:
+    - 识别本轮用户输入改变、推翻、补充或收窄了哪些 PRD 事实
+    - 执行 Concept Alignment Loop：抽取新增、变更或冲突的核心概念，先对照领域语言账本和用户明确否定内容
+    - 若存在 high-impact 概念偏差，优先生成概念对齐质疑，并明确影响章节、判断错误风险和回灌位置
+    - 检查是否与已确认事实、工作假设、排除项或用户明确否定内容冲突
+    - 生成至少 3 个候选质疑，覆盖价值、用户、边界、流程、对象、状态、验收或语义一致性
+    - 按 impact、uncertainty、irreversibility、dependency、user_effort 排序
+    - 只向用户提出 1 个最高价值问题；低风险信息缺口用显式假设推进
+    - 判断问题是否满足 Effective Challenge Ledger 计数条件；用户判无效、纠错或反质疑时不计数并重新提问
+    - 按阶段和视角检查 challenge_quota 覆盖，不允许同类问题换话术凑数
+    - 涉及用户时更新用户模型账本；涉及业务闭环时更新关键业务流程账本
+    - 判断是否触发 Review Adapter；默认不触发，每轮最多触发 1 个 deep adapter
+    - 若后置阶段发现前置根因，进入 Root-Cause Repair Loop，不允许顺手修复或自动补跑后续阶段
+    - 将用户回答或显式假设回灌到事实、边界、对象、流程、状态、验收标准或排除项
+    - 更新质疑账本、假设账本、冲突账本、语义反思记录和必要的 Adapter 账本
+  question_limit:
+    default: 1
+    exception: 只有当不同时回答多个互相独立问题会导致阶段判断失真时，才允许最多 3 个问题。
+  candidate_question_contract:
+    min_candidates_before_selection: 3
+    must_rank_by:
+      - impact
+      - uncertainty
+      - irreversibility
+      - dependency
+      - user_effort
+    selected_question_must_have:
+      - why_this_matters
+      - scenario_example
+      - recommended_answer
+      - affected_prd_section
+      - expected_resolution_type
+  forbidden_questions:
+    - 不影响 PRD 事实、边界、对象、流程、状态或验收标准的泛泛问题
+    - 用户已经明确回答过的问题
+    - 用户已经否定且没有新证据的问题
+    - 低风险、可合理假设且不会影响阶段推进的问题
+  process_file_ledgers:
+    challenge_ledger_section: "## 质疑账本"
+    assumption_ledger_section: "## 假设账本"
+    conflict_ledger_section: "## 冲突账本"
+    semantic_reflection_section: "## 语义反思记录"
+    configuration_section: "## PRD Kit Configuration"
+    effective_challenge_ledger_section: "## Effective Challenge Ledger"
+    challenge_quota_summary_section: "## Challenge Quota Summary"
+    user_model_section: "## 用户模型账本"
+    business_scenario_section: "## 关键业务流程账本"
+    repair_loop_ledger_section: "## Repair Loop Ledger"
+    stage_revalidation_ledger_section: "## Stage Revalidation Ledger"
+    adapter_review_ledger_section: "## Adapter Review Ledger"
+    adapter_waiver_ledger_section: "## Adapter Waiver Ledger"
+    reread_record_section: "## 真实重读记录"
+    w9_section_challenge_coverage_section: "## W9 章节语义质疑覆盖记录"
+    domain_language_ledger_section: "## 领域语言账本"
+    concept_alignment_checkpoint_section: "## 概念对齐检查点"
+  block_stage_progression_if:
+    - 存在 high 或 critical 严重级别且状态为 open 的质疑
+    - 存在 high-impact 概念冲突且状态为 open/conflict
+    - 当前阶段缺少概念对齐检查点，或 high-impact 核心概念仅靠 assumed 推进
+    - 存在未处理冲突
+    - W7/W9/W10 前未完成语义反思记录
+    - 当前阶段有效高质量问题未达到 challenge_quota 的阶段覆盖要求
+    - W10 前总有效高质量问题未达到 challenge_quota.target_total
+    - W10 前视角覆盖未达到 challenge_quota 的视角覆盖要求
+    - 涉及用户但用户模型不完整
+    - 缺少关键业务流程账本，或关键业务流程没有业务目标、参与用户、业务结果、对象状态、验收映射
+    - 存在未闭合 Repair Loop issue
+    - W7/W9/W10 前存在 high 或 critical 严重级别且状态为 open 的 adapter 阻断项
+    - W9 前缺少真实重读记录或正式 PRD 必选章节语义 challenge 覆盖
+    - W9 正式 PRD 使用 rejected/deprecated 术语或引用未确认对象、状态、动作、验收口径
+    - W10 backfill grill 发现概念问题但缺少 root_stage、Repair Loop 记录或 Effective Challenge Ledger 回灌位置
+    - 用户明确否定过的内容被重新引入
+    - 同一对象、字段、菜单、动作或状态在不同章节含义不一致
+
+challenge_quota_contract:
+  purpose: 用可配置有效问题 quota 保证讨论深度，防止机械凑数和单一视角问题堆叠。
+  reference: .trae/skills/yxm-prd-kit/references/challenge-quota-loop.md
+  configuration_section: "## PRD Kit Configuration"
+  default_target_total: 200
+  quality_score_min: 3
+  stage_policy: proportional
+  perspective_policy: proportional
+  effective_challenge_ledger_fields:
+    - challenge_id
+    - stage
+    - perspective
+    - category
+    - question
+    - why_matters
+    - affected_section
+    - answer_summary
+    - answer_status
+    - acceptance_type
+    - user_acceptance_ref
+    - invalidation_reason
+    - quality_score
+    - backfill_location
+    - asked_at
+    - answered_at
+  baseline_stage_distribution:
+    W1_value_alignment: 6
+    W2_scenario_roles: 6
+    W3_function_architecture: 8
+    W4_pages_and_flows: 8
+    W5_object_state_audit: 8
+    W6_requirement_acceptance: 8
+    W7_prd_gate: 4
+    W9_formal_prd_output: 2
+  baseline_perspective_distribution:
+    客户一线使用者: 8
+    客户安全/合规/管理者: 8
+    产品经理: 8
+    CTO/架构负责人: 6
+    研发实现者: 6
+    QA/测试: 6
+    CEO/商业负责人: 6
+    交付/客户成功: 2
+  counted_question_must_have:
+    - user_acceptance_ref 指向真实 host user_turn receipt
+    - answer_status=answered|confirmed
+    - acceptance_type=answer|accept
+    - invalidation_reason 为空
+    - backfill_location 非空
+    - quality_score >= quality_score_min
+  acceptance_type_values:
+    answer: 用户回答了该问题，回答内容已回灌，可计数
+    accept: 用户明确认可该问题或结论，认可内容已回灌，可计数
+    repair: 用户纠错、反质疑或指出上一轮问题/产物错误，只能作为修复证据，不得计数
+
+business_scenario_contract:
+  purpose: 凡涉及用户必须明确用户类型、能力边界、数据边界和关系；关键业务流程必须围绕业务闭环建模。
+  reference: .trae/skills/yxm-prd-kit/references/business-scenario-loop.md
+  user_model_section: "## 用户模型账本"
+  business_scenario_section: "## 关键业务流程账本"
+  business_scenario_w4_to_w5_gate: 进入 W5_object_state_audit 前必须通过关键业务流程账本结构检查；检查复用 runtime business_scenario_status，不新增独立 W4 artifact。
+  user_model_required_fields:
+    - 用户定义
+    - 所属组织/租户
+    - 使用入口
+    - 业务目标
+    - 能看到什么
+    - 能创建什么
+    - 能修改什么
+    - 能删除/终止什么
+    - 能执行的关键动作
+    - 明确不能做什么
+    - 与其他用户的关系
+    - 数据边界
+    - 审计/留痕字段
+    - 涉及的关键业务流程
+  business_flow_required_fields:
+    - 业务目标
+    - 参与用户
+    - 用户关系
+    - 触发条件
+    - 关键业务判断
+    - 业务结果
+    - 失败/中止后果
+    - 涉及对象与状态
+    - 数据/证据来源
+    - 验收映射
+
+root_cause_repair_contract:
+  purpose: 后置阶段发现前置根因时必须回退 root_stage，修复后在 root_stage 继续深挖并逐阶段推进。
+  reference: .trae/skills/yxm-prd-kit/references/root-cause-repair-loop.md
+  repair_loop_ledger_fields:
+    - issue_id
+    - found_stage
+    - root_stage
+    - root_cause_type
+    - affected_stages
+    - severity
+    - repair_question_id
+    - user_acceptance
+    - repair_status
+    - current_repair_stage
+    - rerun_policy
+    - root_stage_revalidated_at
+    - status
+  stage_revalidation_ledger_fields:
+    - repair_issue_id
+    - stage
+    - new_challenge_count_after_reopen
+    - exit_criteria_status
+    - exit_evidence
+    - next_stage
+  required_rerun_policy: stepwise_from_root_stage
+  forbidden:
+    - repair_applied_without_root_stage_revalidated
+    - direct_jump_from_root_stage_to_found_stage
+    - high_or_critical_without_user_acceptance
+
+review_adapter_contract:
+  purpose: 在不增加默认流程负担的前提下，按需引入其他 Skill 的高价值质疑方法。
+  registry: .trae/skills/yxm-prd-kit/references/review-adapters.md
+  default_behavior: no_adapter
+  max_deep_adapters_per_turn: 1
+  modes:
+    - lens
+    - handoff
+    - evidence
+    - mechanism_borrowed
+  deterministic_ledger_schema:
+    adapter_review_ledger_fields:
+      - issue_id
+      - stage
+      - source_adapter
+      - adapter_mode
+      - trigger
+      - severity
+      - status
+      - blocking_stage
+      - conclusion
+      - target_ledger
+      - waiver_id
+      - evidence_provenance
+      - updated_at
+    adapter_waiver_ledger_fields:
+      - waiver_id
+      - stage_or_section
+      - waived_item
+      - user_quote
+      - risk
+      - expiry_condition
+      - updated_at
+    valid_adapter_modes:
+      - lens
+      - handoff
+      - evidence
+      - mechanism_borrowed
+    valid_severities:
+      - low
+      - medium
+      - high
+      - critical
+    valid_statuses:
+      - open
+      - resolved
+      - waived
+      - superseded
+  adapters:
+    - source_adapter: yxm-first-principles-decomposer
+      stages: [W1_value_alignment, W3_function_architecture, W5_object_state_audit]
+      mode: lens
+      trigger: 范围过大、对象边界混乱或方案复杂度高于目标
+    - source_adapter: yxm-plan-ceo-review
+      stages: [W10_plan_ceo_review]
+      mode: handoff
+      trigger: W9 完成后进入 CEO/创始人视角评审
+    - source_adapter: karpathy-wiki
+      stages: [W1_value_alignment, W2_scenario_roles, W3_function_architecture, W4_pages_and_flows, W5_object_state_audit, W6_requirement_acceptance, W7_prd_gate, W9_formal_prd_output]
+      mode: evidence
+      trigger: 需要稳定知识事实或既有能力证据
+    - source_adapter: yxm-grill-with-docs
+      stages: [W1_value_alignment, W2_scenario_roles, W3_function_architecture, W4_pages_and_flows, W5_object_state_audit, W6_requirement_acceptance, W9_formal_prd_output, W10_plan_ceo_review]
+      mode: lens
+      trigger: 新增核心术语、术语混用、对象边界不清、状态或动作含义变化、用户未显式对齐但阶段准备推进，或 W10 quota/CEO/用户反馈暴露概念错误
+      required_output: 标准术语、冲突术语、一个最高价值对齐问题、场景压力测试结论、回灌位置
+      backfill_targets: 领域语言账本、概念对齐检查点、质疑账本、冲突账本、用户模型账本、关键业务流程账本、核心对象模型、状态机、验收标准、Repair Loop Ledger
+      non_goals: 不新增外部文档产物、不切换 workflow、不创建外部会话
+
+stage_execution_contract:
+  purpose: 防止 root 或 worker 跳过中间阶段，保证每轮都显式暴露当前所处工作流阶段。
+  stage_order:
+    - W0_start
+    - W1_value_alignment
+    - W2_scenario_roles
+    - W3_function_architecture
+    - W4_pages_and_flows
+    - W5_object_state_audit
+    - W6_requirement_acceptance
+    - W7_prd_gate
+    - W8_verification_checkpoint
+    - W9_formal_prd_output
+    - W10_plan_ceo_review
+    - W11_engineering_prd_projection
+  every_turn_visible_status:
+    required: true
+    format: "[PRD工作流] stage=<current_stage>; artifact=<process_file|formal_prd|engineering_prd>; gate=<blocked|pass|reviewing|passed>; next=<next_stage|none>; blocker=<none|最高优先级阻断项>"
+    must_appear_before:
+      - 当前判断
+      - 已确认
+      - 待确认
+      - 正式 PRD 摘要
+      - final_answer
+  process_file_workflow_state:
+    required: true
+    section_title: "## Workflow State"
+    fields:
+      - current_stage
+      - artifact_stage
+      - gate
+      - next_stage
+      - stage_exit_criteria_status
+      - updated_at
+    update_policy: 每轮都必须更新；若不更新，不允许宣称当前轮完成。
+  transition_guard:
+    require_current_stage_output: true
+    require_process_file_updated: true
+    require_stage_ledger_updated: true
+    require_challenge_loop_completed: true
+    require_exit_criteria_passed: true
+    require_no_unresolved_high_challenge_before_w7: true
+    require_semantic_reflection_before_w9: true
+    require_challenge_quota_before_w10: true
+    require_stage_challenge_quota_before_stage_exit: true
+    require_perspective_quota_before_w10: true
+    require_user_model_before_w7: true
+    require_business_scenario_before_w5: true
+    require_repair_loop_closed_before_w9: true
+    forbid_repair_skip_to_found_stage: true
+    require_no_open_high_adapter_before_w7: true
+    require_w9_reread_record: true
+    require_w9_section_challenge_coverage: true
+    forbid_skip_stages: true
+    forbid_formal_prd_before_w7_pass: true
+    forbid_w10_before_w9_completed: true
+    forbid_w11_before_w10_passed: true
+    allow_auto_w10_on_continue_after_w9: true
+    plain_continue_after_w9:
+      input_aliases:
+        - 继续
+        - 下一步
+        - 进入评审
+        - 开始 CEO 评审
+      action: 自动进入 W10_plan_ceo_review，并在当前会话内按 yxm-plan-ceo-review 规则完成 CEO 评审
+      forbidden_response: 不得要求用户再手动输入 /ceo
+    on_violation:
+      artifact_stage: process_file
+      quality_gate_report: blocked
+      action: 修正 workflow_state 和 stage_ledger，不允许继续输出正式 PRD
+  exit_criteria_contract:
+    W0_start:
+      - scope_resolution 已记录
+      - process_file 已初始化或更新
+      - 下一步唯一问题已输出，或可进入 W1
+    W1_value_alignment:
+      - 价值主张已记录
+      - 业务目标或成功指标缺口已记录
+      - 本阶段新增或变更的核心价值、用户和业务结果概念已完成概念对齐检查点
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W2_scenario_roles:
+      - 角色、入口、菜单或明确无权限控制已记录
+      - 用户模型账本已记录涉及用户、能做什么、不能做什么、数据边界和用户关系
+      - 关键场景已记录
+      - 用户类型、权限边界、数据边界和用户关系术语已进入领域语言账本并完成概念对齐检查点
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W3_function_architecture:
+      - 一级模块、页面、In Scope、Out of Scope 已记录
+      - 关键业务流程集合已识别
+      - 应用能力、底座能力、平台能力和不做项的术语边界已完成概念对齐检查点
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W4_pages_and_flows:
+      - 关键业务流程已围绕业务目标、参与用户、关键判断、业务结果、失败中止后果建模
+      - 页面路径和功能流程只作为关键业务流程的落地补充
+      - 进入 W5 前必须通过关键业务流程账本结构检查，检查项复用 business_scenario_status，不新增独立 artifact
+      - 关键业务流程名称、触发条件、业务结果、失败/中止后果和页面承载对象已完成概念对齐检查点
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W5_object_state_audit:
+      - 核心对象、状态机、审计/追踪字段、删除/失败/重试规则已记录
+      - 关键业务流程已映射到对象、状态和数据证据
+      - 核心对象、对象状态、关键动作、删除/撤回/终止/失败/过期语义已进入领域语言账本并完成概念对齐检查点
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W6_requirement_acceptance:
+      - 需求清单按模块输出
+      - 验收标准覆盖关键业务流程、异常、状态、配置、导出和数据约束
+      - 需求清单和验收标准不得引入未在领域语言账本确认的对象、状态、动作或验收口径
+      - 本阶段最高价值质疑已回答、假设或登记为阻断项
+      - 本阶段有效高质量问题达到 challenge_quota 阶段覆盖要求
+    W7_prd_gate:
+      - 状态机完整性通过
+      - 流程配置规则完整性通过
+      - 权限或无权限边界通过
+      - 验收标准可测试性通过
+      - 不存在未关闭 high 或 critical 质疑
+      - 不存在未处理冲突
+      - 用户模型账本通过
+      - 关键业务流程账本通过
+      - 不存在 high 或 critical 且状态为 open 的 adapter 阻断项
+    W8_verification_checkpoint:
+      - conclusion-verifier 通过，或失败问题已回灌并修复
+    W9_formal_prd_output:
+      - 正式 PRD 已生成
+      - 正式 PRD 不包含过程元信息
+      - 正式 PRD 与过程文件事实一致
+      - 正式 PRD 已通过语义反思检查
+      - 不存在 open Repair Loop issue
+      - 正式 PRD 与领域语言账本一致，未使用 rejected/deprecated 术语，未引用未确认对象、状态、动作或验收口径
+      - 真实重读记录覆盖 process_file 与 formal_prd
+      - 所有正式 PRD 必选章节已完成章节级语义 challenge 或逐章节 waiver
+      - Workflow State.next_stage 已设置为 W10_plan_ceo_review
+    W10_plan_ceo_review:
+      - 已读取 .trae/skills/yxm-plan-ceo-review/SKILL.md 并完成 CEO 评审
+      - yxm-plan-ceo-review 已返回 passed 或 changes_requested
+      - changes_requested 时已回灌对应阶段修复并重新通过 W7/W8/W10
+      - challenge_quota 总数和视角覆盖已通过
+      - quota 补问、CEO 评审或用户反馈暴露的概念问题已通过 backfill grill 记录 found_stage=W10_plan_ceo_review、root_stage、repair_question_id 和回灌位置
+    W11_engineering_prd_projection:
+      - W10_plan_ceo_review 已 passed
+      - process_file 存在
+      - formal_prd 存在
+      - final_release_status=passed
+      - 已读取 references/engineering-prd-template.md
+      - 已按 output/prd-kit/<应用slug>/<应用名称>-研发版PRD-YYYYMMDD-HHmmss.md 生成完整研发版 PRD
+      - 研发版 PRD 不覆盖正式 PRD，也不覆盖历史研发版 PRD
+      - W11 不做新概念讨论，只消费已确认的领域语言账本、过程文件和正式 PRD
+      - 无法从正式 PRD 或过程文件推导的内容已写入未决问题或实现待确认
+  stage_ledger_contract:
+    required: true
+    section_title: "## Stage Ledger"
+    append_only: true
+    row_fields:
+      - stage
+      - entered_at
+      - exit_status
+      - exit_evidence
+      - next_stage
+    rule: 进入新阶段前必须追加上一阶段 exit_status；不得用口头说明替代 ledger。
+
+workflow:
+  - id: W0_start
+    name: 启动与范围判断
+    owner: product-designer
+    input:
+      - 用户初始想法
+      - 已有材料
+      - 参考 PRD 或竞品材料
+    actions:
+      - 判断是否为非 Agent 应用
+      - 判断范围是 platform/module/feature/application/unknown
+      - 若范围不清，提出 1 个最高价值澄清问题
+      - 若用户要求先讨论，不直接写正式 PRD
+    output:
+      - scope_resolution
+      - current_stage=需求讨论
+      - process_file 初始化或更新
+
+  - id: W1_value_alignment
+    name: 价值与目标收敛
+    owner: product-designer
+    actions:
+      - 提炼业务背景
+      - 明确业务问题
+      - 提炼市场或内部对标原则
+      - 明确产品目标与成功指标
+    required_decisions:
+      - 为什么要做该应用
+      - 首期必须解决哪几个问题
+      - 成功指标如何验证
+    output_sections:
+      - 价值主张
+      - 业务目标
+
+  - id: W2_scenario_roles
+    name: 场景、角色与权限收敛
+    owner: product-designer
+    actions:
+      - 定义核心角色
+      - 定义应用入口与可见菜单
+      - 输出角色权限矩阵
+      - 梳理关键场景与交付结果
+    gate_checks:
+      - 是否明确直接用户
+      - 是否明确管理员/运营角色
+      - 是否明确哪些角色只能看本人数据
+      - 是否明确跨角色协作关系
+    output_sections:
+      - 核心场景
+      - 角色定义
+      - 角色权限矩阵
+
+  - id: W3_function_architecture
+    name: 功能架构与范围边界
+    owner: product-designer
+    actions:
+      - 拆分一级模块、页面和功能
+      - 明确 In Scope / Out of Scope
+      - 识别配置、策略、审计、通知等横切能力
+      - 生成 Mermaid 功能架构图
+    gate_checks:
+      - 是否避免做成过宽的平台
+      - 是否明确不做哪些高级能力
+      - 是否明确首期依赖哪些已有底座
+    output_sections:
+      - 功能架构
+      - 页面与菜单
+      - 范围与边界
+
+  - id: W4_pages_and_flows
+    name: 关键业务流程建模与页面落地
+    owner: product-designer
+    actions:
+      - 识别每条关键业务流程的业务目标、参与用户、用户关系、触发条件、关键业务判断和业务结果
+      - 定义分支与例外、失败/中止后果、涉及对象与状态、数据/证据来源和验收映射
+      - 将页面路径、布局、功能区、字段和跳转作为关键业务流程的落地补充
+      - 不把 CRUD 或按钮级功能流程当作关键业务流程模板
+    gate_checks:
+      - 每条关键业务流程是否有明确业务目标和业务结果
+      - 每条关键业务流程是否明确参与用户和用户关系
+      - 每条关键业务流程是否映射对象、状态、数据证据和验收标准
+      - runtime 是否已在 W4→W5 切换前通过关键业务流程账本结构检查
+    output_sections:
+      - 页面与菜单
+      - 关键业务流程
+      - Mermaid 流程图
+
+  - id: W5_object_state_audit
+    name: 对象模型、状态机、权限审计闭合
+    owner: product-designer
+    actions:
+      - 提炼核心对象模型
+      - 定义对象关系
+      - 定义对象生命周期
+      - 为核心对象定义状态机
+      - 定义审计事件类型与必填字段
+    hard_gate:
+      state_machine_required: true
+      permission_audit_required: true
+    blocked_if_missing:
+      - 核心对象不明确
+      - 状态迁移条件不明确
+      - 回退/取消/失败/过期/删除规则不明确
+      - 谁能操作、谁能查看、谁能配置不明确
+      - 关键操作没有审计事件
+    output_sections:
+      - 核心对象模型
+      - 状态机设计
+      - 审计日志类型
+
+  - id: W6_requirement_acceptance
+    name: 需求清单与验收标准
+    owner: product-designer
+    actions:
+      - 按模块输出需求清单
+      - 每条需求包含 ID、需求、用户价值、优先级、验收标准
+      - 输出主流程、异常流程、权限、状态机、配置/审计验收
+    hard_gate:
+      acceptance_testable: true
+    blocked_if_missing:
+      - 验收标准不可测试
+      - 需求没有模块归属
+      - 只有功能描述，没有预期结果
+      - 权限边界未覆盖验收
+    output_sections:
+      - 需求清单
+      - 验收标准
+
+  - id: W7_prd_gate
+    name: PRD Gate
+    owner: prd-kit
+    actions:
+      - 检查状态机完整性
+      - 检查流程配置规则完整性
+      - 检查权限/审计完整性
+      - 检查验收标准完整性
+      - 更新过程文件
+    result:
+      pass: 允许进入正式 PRD 输出
+      blocked: 只更新过程文件，并继续追问 1 个最高优先级阻断问题
+    output_contract:
+      artifact_stage: process_file|formal_prd
+      quality_gate_report: blocked|pass
+      process_file_body: required
+      process_state_summary: required
+      next_blocking_question_or_none: required_when_blocked
+      formal_prd_body: only_when_pass
+
+  - id: W8_verification_checkpoint
+    name: 验证检查点
+    owner: conclusion-verifier
+    trigger:
+      - blocker_closed
+      - pre_pass_transition
+      - formal_prd_ready
+    verification_scope:
+      - 结构完整性
+      - 事实一致性
+      - 范围边界
+      - 对象/流程/状态机一致性
+      - 权限审计闭合
+      - 验收标准可测试性
+    result:
+      passed: 可继续
+      failed: 回灌 product-designer 修复，最多 1 轮
+
+  - id: W9_formal_prd_output
+    name: 正式 PRD 输出
+    owner: product-designer
+    precondition:
+      - prd_gate=pass
+      - formal_prd_ready verification passed
+    actions:
+      - 先更新最终过程文件
+      - 按 output_rules.when_pass.required_sections 输出正式 PRD
+      - 移除所有过程元信息
+      - 检查 Mermaid 图、需求清单、验收标准与正文一致
+    output:
+      - formal_prd
+
+  - id: W10_plan_ceo_review
+    name: 接入 CEO 计划评审
+    owner: yxm-plan-ceo-review
+    entry_contract:
+      automatic_entry_from_w9: true
+      command: /ceo
+      command_usage: current_project_skill_rules
+      execution_policy: 在当前会话中读取 .trae/skills/yxm-plan-ceo-review/SKILL.md 和按需 references 完成评审，不创建独立外部会话。
+    precondition:
+      - W9_formal_prd_output completed
+      - formal_prd exists
+      - prd_gate=pass
+      - workflow_state.current_stage=W10_plan_ceo_review
+    inputs:
+      - process_file
+      - formal_prd
+      - stage_ledger
+    ceo_review_contract:
+      purpose: W10 只负责把过程文件、正式 PRD 和阶段账本交给 yxm-plan-ceo-review 规则评审，不复刻或限制 yxm-plan-ceo-review 的内部评审逻辑。
+      required_payload:
+        - process_file path
+        - formal_prd path
+        - current workflow_state
+        - stage_ledger summary
+        - review_goal=从 CEO/创始人视角重审正式 PRD
+      delegate_logic_source: .trae/skills/yxm-plan-ceo-review/SKILL.md
+      wf_must_not_define:
+        - yxm-plan-ceo-review 的评审模式
+        - yxm-plan-ceo-review 的首轮输出结构
+        - yxm-plan-ceo-review 的多轮讨论次数
+        - yxm-plan-ceo-review 的问题生成方式
+        - yxm-plan-ceo-review 何时修改 PRD 的内部策略
+    actions:
+      - 读取 .trae/skills/yxm-plan-ceo-review/SKILL.md
+      - 将 process_file、formal_prd 和 stage_ledger 作为评审输入交给 yxm-plan-ceo-review
+      - 完全遵循 yxm-plan-ceo-review Skill 自身逻辑完成评审
+      - 接收 yxm-plan-ceo-review 的 passed 或 changes_requested 结果
+      - 若 changes_requested，按结果回灌对应阶段修改 PRD，并重新执行 W7/W8/W10
+    result:
+      passed: CEO 评审通过，正式 PRD 可作为最终产物
+      changes_requested: 存在问题，回到对应阶段修复后重新进入 W7/W8/W10
+    repair_routing:
+      scope_or_value_issue: W1_value_alignment
+      role_or_scenario_issue: W2_scenario_roles
+      module_or_boundary_issue: W3_function_architecture
+      page_or_flow_issue: W4_pages_and_flows
+      object_state_audit_issue: W5_object_state_audit
+      requirement_acceptance_issue: W6_requirement_acceptance
+      wording_or_structure_issue: W9_formal_prd_output
+    output_contract:
+      artifact_stage: formal_prd
+      quality_gate_report: reviewing|passed
+      ceo_review_summary: required
+      ceo_review_issues: required
+      repair_actions: required_when_changes_requested
+      final_release_status: only_when_passed
+
+  - id: W11_engineering_prd_projection
+    name: 研发版 PRD 投影
+    owner: product-designer
+    precondition:
+      - W10_plan_ceo_review passed
+      - formal_prd exists
+      - process_file exists
+      - final_release_status=passed
+    actions:
+      - 读取 references/engineering-prd-template.md
+      - 从最新通过 W10 的正式 PRD 和过程文件抽取研发所需信息
+      - 使用当前时间生成唯一研发版 PRD 文件名
+      - 按模板重新生成完整研发版 PRD
+      - 不覆盖历史研发版 PRD
+      - 不改写人类版正式 PRD
+      - 无法从正式 PRD 或过程文件推导的内容必须写入未决问题或实现待确认
+    output:
+      - engineering_prd
+    output_contract:
+      artifact_stage: engineering_prd
+      quality_gate_report: passed
+      engineering_prd_path: required
+      engineering_prd_body: required
+      source_formal_prd: required
+      source_process_file: required
+
+quality_gates:
+  state_machine_completeness:
+    required:
+      - 核心对象状态
+      - 状态迁移条件
+      - 失败/取消/撤回/删除/过期规则
+      - 并发修改策略
+      - 多状态机交互策略
+  process_rule_completeness:
+    required:
+      - 主流程
+      - 异常流程
+      - 权限与策略校验节点
+      - 配置项生效范围
+      - 版本或变更约束
+  permission_audit_completeness:
+    required:
+      - 谁可发起
+      - 谁可配置
+      - 谁可审批或处理
+      - 谁可撤回/删除/作废
+      - 哪些操作必须留痕
+      - 审计日志字段和可见范围
+  acceptance_completeness:
+    required:
+      - 主流程可测
+      - 异常分支可测
+      - 权限边界可测
+      - 状态变化可测
+      - 配置/策略/审计可测
+  ceo_review_completeness:
+    required:
+      - 已读取 .trae/skills/yxm-plan-ceo-review/SKILL.md
+      - yxm-plan-ceo-review 已按自身 Skill 逻辑完成评审
+      - changes_requested 时已回灌修复并重新通过 W7/W8
+      - passed 时已记录 final_release_status=passed
+  engineering_prd_projection_completeness:
+    required:
+      - W10_plan_ceo_review 已 passed
+      - 研发版 PRD 使用 references/engineering-prd-template.md
+      - 文件名包含 YYYYMMDD-HHmmss 时间戳
+      - 研发版 PRD 不包含过程元信息
+      - 无法推导的内容已写入未决问题或实现待确认
+
+output_rules:
+  during_discussion:
+    must_output:
+      - workflow_stage
+      - artifact_stage
+      - current_gate
+      - completed_stages
+      - next_stage
+      - stage_exit_criteria_status
+      - 当前判断
+      - 已确认
+      - 待确认
+      - 过程文件更新摘要
+      - 下一步唯一问题
+    must_not_output:
+      - 正式 PRD 全文
+      - 未经确认的确定性结论
+  when_blocked:
+    artifact_stage: process_file
+    formal_prd_body: ""
+    next_question_limit: 1
+    next_question_policy: 只问最高价值问题；问题必须说明影响章节、不回答的风险、1 个贴近当前业务的短模拟场景和建议口径。建议口径默认 1 个推荐方案；只有确实存在两个合理产品方案时，才给 A/B 两个选项，并说明“接受”采用默认推荐项。
+  when_pass:
+    artifact_stage: formal_prd
+    require_w10_plan_ceo_review_passed: true
+    require_no_unresolved_high_challenge: true
+    require_no_open_conflict: true
+    require_semantic_reflection_passed: true
+    required_sections:
+      - 文档信息
+      - 价值主张
+      - 业务目标
+      - 核心场景
+      - 功能架构
+      - 页面与菜单
+      - 业务流程
+      - 核心对象模型
+      - 状态机设计
+      - 需求清单
+      - 验收标准
+      - 前提与假设
+      - 风险与依赖
+  when_ceo_review_changes_requested:
+    artifact_stage: formal_prd
+    must_output:
+      - "[PRD工作流] stage=W10_plan_ceo_review; artifact=formal_prd; gate=reviewing; next=<repair_stage>; blocker=<CEO评审问题>"
+      - CEO 评审问题
+      - 回灌修改计划
+      - 重新进入 W7/W8/W10 的检查说明
+  when_engineering_prd_projection:
+    artifact_stage: engineering_prd
+    required_template: .trae/skills/yxm-prd-kit/references/engineering-prd-template.md
+    output_path_pattern: output/prd-kit/<应用slug>/<应用名称>-研发版PRD-YYYYMMDD-HHmmss.md
+    generation_policy: 每次重新生成完整文件，不覆盖历史研发版 PRD
+    required_sections:
+      - 文档信息
+      - 交付目标
+      - 非目标
+      - 实现优先级与完成定义
+      - 角色与权限
+      - 命名与文案真源
+      - 领域规则
+      - 可执行业务流程
+      - 页面与交互
+      - 状态机
+      - 核心数据模型
+      - 验收标准
+      - 实现约束
+      - 开发切片顺序
+
+recommended_directory_layout:
+  root: output/prd-kit/<应用slug>/
+  files:
+    - <应用名称>-过程文件.md
+    - <应用名称>-PRD.md
+    - <应用名称>-研发版PRD-YYYYMMDD-HHmmss.md
+    - <应用名称>-trace.md
+    - <应用名称>-CEO评审记录.md
+  transient_files:
+    - .prd-kit.lock
+

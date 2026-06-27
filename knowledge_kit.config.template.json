@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "knowledge_roots": [
+    {
+      "id": "sample_knowledge",
+      "name": "示例知识库",
+      "path": "/path/to/your/knowledge/root",
+      "enabled": true,
+      "mode": "read_write",
+      "priority": 80
+    }
+  ],
+  "query": {
+    "strategy": "fanout_read_plan_then_summarize",
+    "default_scope": "enabled",
+    "candidate_limit": 80,
+    "evidence_budget": 30,
+    "exhaustive_evidence_budget": 30
+  },
+  "code": {
+    "runs_dir": "state/kcode-runs",
+    "default_mode": "update",
+    "default_depth": "standard",
+    "default_max_rounds": 2,
+    "workspaces": {}
+  },
+  "update": {
+    "write_target_required": true,
+    "allow_multi_target_write": false,
+    "preflight_query_required": true,
+    "post_update_lint_required": true,
+    "post_update_verifier_required": true
+  },
+  "output": {
+    "runs_dir": "output/knowledge-runs",
+    "state_dir": "state"
+  }
+}

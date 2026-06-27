@@ -1,0 +1,36 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local environments
+.venv/
+venv/
+
+# Local config (contains user-specific paths)
+knowledge_kit.config.json
+
+# knowledge_kit runtime artifacts
+output/
+state/
+.tmp_query_bundle_*.json
+test-results/
+
+# Obsidian caches
+.obsidian/
+
+ai_docs/
+docs/
+
+node_modules/

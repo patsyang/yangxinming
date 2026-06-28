@@ -34,3 +34,5 @@ ai_docs/
 docs/
 
 node_modules/
+
+.trae/specs

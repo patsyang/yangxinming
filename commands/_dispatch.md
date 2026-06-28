@@ -29,7 +29,9 @@
 | `/yxm-prd` | `.trae/skills/yxm-prd-kit/SKILL.md` |
 | `/yxm-pld` | `.trae/skills/yxm-product-landscape-discovery/SKILL.md` |
 | `/yxm-sf` | `.trae/skills/yxm-skill-factory/SKILL.md` |
+| `/yxm-sf2` | `.trae/skills/yxm-skill-factory-v2/SKILL.md` |
 | `/yxm-ui` | `.trae/skills/yxm-ui-ux-pro-max/SKILL.md` |
+| `/yxm-fund` | `.trae/skills/yxm-fund/SKILL.md` |
 
 ## 规则
 

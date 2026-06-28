@@ -1,7 +1,6 @@
 ---
 name: yxm-writes
 description: "写作引擎。像手术刀剖开一个观点，一层层剥到底。1200-1600 字。"
-user_invocable: true
 version: "6.3.0"
 ---
 

@@ -34,3 +34,13 @@ spawn 独立子 agent 跑 test-prompts，对照 SKILL.md 的 13 条红线逐条�
 - 转载平台 URL（toutiao.com/group/ 等 UGC 转载）不许作为来源名标原始媒体的证据项。
 
 来源名-URL 一致性机械判定由外部审计对照证据账做（spawn 标注规则见 SKILL.md 第 3 步"锚来源"）。
+
+## 附件归位与索引同步机械检查（obsidian 目录约定专项）
+
+外部审计对照运行输出沉淀项，逐条检查：
+
+- **附件归位**：沉淀项里引用的附件（图片/SVG/PDF）路径须为 `![[assets/xxx]]`，不许平铺根目录 `![[xxx]]`。
+- **索引同步**：沉淀项里有新增/删除 note 时，证据账须声明"待索引同步：新增/删除的 note 名"（spawn 层标记）；或 `索引.md` 已更新（回灌层执行）。
+- **vault 配置**：首次创建 vault 时须声明设 `attachmentFolderPath: "assets"`（回灌层动作）。
+
+附件归位与索引同步机械判定由外部审计对照沉淀项做（目录约定见 SKILL.md "obsidian 目录约定"节）。
